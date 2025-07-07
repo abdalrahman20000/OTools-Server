@@ -1,4 +1,4 @@
-// server.js - Enhanced Image Analyzer Server
+// server.js - Enhanced Image Analyzer Server with Location Detection
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
@@ -50,6 +50,8 @@ function isNonImageContentType(contentType) {
     "application/octet-stream",
     "application/zip",
     "application/x-www-form-urlencoded",
+    "video/",
+    "audio/",
   ];
 
   return (
@@ -85,6 +87,7 @@ function shouldIgnoreUrl(url) {
 }
 
 function isValidImageUrl(url) {
+  // Enhanced list of valid image extensions including modern formats
   const validImageExtensions = [
     ".jpg",
     ".jpeg",
@@ -95,7 +98,21 @@ function isValidImageUrl(url) {
     ".ico",
     ".bmp",
     ".tiff",
+    ".tif",
     ".avif",
+    ".heic",
+    ".heif",
+    ".jxl",
+    ".jp2",
+    ".jpx",
+    ".j2k",
+    ".wdp",
+    ".jxr",
+    ".dng",
+    ".cr2",
+    ".nef",
+    ".arw",
+    ".raw",
   ];
 
   try {
@@ -121,6 +138,11 @@ function isValidImageUrl(url) {
       ".pdf",
       ".doc",
       ".zip",
+      ".mp4",
+      ".avi",
+      ".mov",
+      ".mp3",
+      ".wav",
     ];
 
     // Filter out obvious non-image URLs
@@ -128,10 +150,12 @@ function isValidImageUrl(url) {
       return false;
     }
 
-    // Check for valid image extensions
+    // Check for valid image extensions (enhanced pattern)
     return (
       validImageExtensions.includes(`.${extension}`) ||
-      url.match(/\.(jpg|jpeg|png|gif|webp|svg|ico|bmp|tiff|avif)(\?.*)?$/i)
+      url.match(
+        /\.(jpg|jpeg|png|gif|webp|svg|ico|bmp|tiff|tif|avif|heic|heif|jxl|jp2|jpx|j2k|wdp|jxr|dng|cr2|nef|arw|raw)(\?.*)?$/i
+      )
     );
   } catch {
     return false;
@@ -161,7 +185,260 @@ function makeAbsoluteUrl(baseUrl, relativeUrl) {
   }
 }
 
-// Website image extraction endpoint (matching PowerShell functionality)
+// Enhanced function to detect image location and context on the page
+function getImageLocationDetectionScript() {
+  return `
+    (function() {
+      function detectImageLocation(imgElement) {
+        try {
+          const rect = imgElement.getBoundingClientRect();
+          const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+          const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+          
+          // Get absolute coordinates
+          const coordinates = {
+            x: Math.round(rect.left + scrollLeft),
+            y: Math.round(rect.top + scrollTop),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          };
+
+          // Detect page sections by analyzing parent elements
+          const sections = [];
+          let contextInfo = "";
+          
+          // Traverse up the DOM to find semantic sections
+          let currentElement = imgElement;
+          const maxTraversal = 10; // Limit traversal to avoid infinite loops
+          let traversalCount = 0;
+          
+          while (currentElement && currentElement !== document.body && traversalCount < maxTraversal) {
+            const tagName = currentElement.tagName ? currentElement.tagName.toLowerCase() : '';
+            const className = currentElement.className ? currentElement.className.toString().toLowerCase() : '';
+            const id = currentElement.id ? currentElement.id.toLowerCase() : '';
+            
+            // Check for semantic HTML5 elements
+            if (['header', 'nav', 'main', 'aside', 'footer', 'section', 'article'].includes(tagName)) {
+              if (tagName === 'header') sections.push('Header');
+              else if (tagName === 'nav') sections.push('Navigation');
+              else if (tagName === 'main') sections.push('Main');
+              else if (tagName === 'aside') sections.push('Sidebar');
+              else if (tagName === 'footer') sections.push('Footer');
+              else if (tagName === 'section' || tagName === 'article') sections.push('Content');
+            }
+            
+            // Check for common class/id patterns
+            if (className || id) {
+              const combined = (className + " " + id).toLowerCase();
+              
+              if (combined.includes('header') || combined.includes('top')) {
+                sections.push('Header');
+              } else if (combined.includes('nav') || combined.includes('menu') || combined.includes('navigation')) {
+                sections.push('Navigation');
+              } else if (combined.includes('sidebar') || combined.includes('aside') || combined.includes('widget')) {
+                sections.push('Sidebar');
+              } else if (combined.includes('footer') || combined.includes('bottom')) {
+                sections.push('Footer');
+              } else if (combined.includes('main') || combined.includes('content') || combined.includes('article')) {
+                sections.push('Main');
+              } else if (combined.includes('hero') || combined.includes('banner') || combined.includes('slider')) {
+                sections.push('Main');
+              }
+            }
+            
+            currentElement = currentElement.parentElement;
+            traversalCount++;
+          }
+          
+          // If no sections detected, use position-based detection
+          if (sections.length === 0) {
+            const viewportHeight = window.innerHeight;
+            const documentHeight = Math.max(
+              document.body.scrollHeight,
+              document.body.offsetHeight,
+              document.documentElement.clientHeight,
+              document.documentElement.scrollHeight,
+              document.documentElement.offsetHeight
+            );
+            const relativeY = coordinates.y / documentHeight;
+            
+            if (relativeY < 0.2) {
+              sections.push('Header');
+            } else if (relativeY > 0.8) {
+              sections.push('Footer');
+            } else {
+              sections.push('Main');
+            }
+          }
+          
+          // Remove duplicates and sort
+          const uniqueSections = [...new Set(sections)];
+          
+          // Generate context information
+          const altText = imgElement.alt || "";
+          const title = imgElement.title || "";
+          let figcaption = "";
+          
+          try {
+            const figure = imgElement.closest('figure');
+            if (figure) {
+              const caption = figure.querySelector('figcaption');
+              if (caption) {
+                figcaption = caption.textContent || "";
+              }
+            }
+          } catch (e) {
+            // Ignore closest() errors in older browsers
+          }
+          
+          if (altText) contextInfo += "Alt: " + altText.substring(0, 50);
+          if (title) contextInfo += (contextInfo ? " | " : "") + "Title: " + title.substring(0, 50);
+          if (figcaption) contextInfo += (contextInfo ? " | " : "") + "Caption: " + figcaption.substring(0, 50);
+          
+          return {
+            coordinates,
+            sections: uniqueSections.length > 0 ? uniqueSections : ['Unknown'],
+            contextInfo: contextInfo || "No context available"
+          };
+        } catch (error) {
+          return {
+            coordinates: { x: 0, y: 0, width: 0, height: 0 },
+            sections: ['Unknown'],
+            contextInfo: "Error detecting location: " + error.message
+          };
+        }
+      }
+
+      // Extract images with location data
+      function extractImagesWithLocation() {
+        try {
+          const imageData = [];
+          const allImages = [];
+          
+          // Get all img elements
+          const imgElements = document.querySelectorAll('img');
+          imgElements.forEach((img) => {
+            try {
+              const urls = [];
+              
+              if (img.src) urls.push(img.src);
+              if (img.getAttribute('data-src')) urls.push(img.getAttribute('data-src'));
+              if (img.getAttribute('data-lazy-src')) urls.push(img.getAttribute('data-lazy-src'));
+              if (img.getAttribute('data-original')) urls.push(img.getAttribute('data-original'));
+              
+              // Handle srcset
+              if (img.srcset) {
+                const srcsetUrls = img.srcset.split(',').map(s => s.trim().split(' ')[0]);
+                urls.push(...srcsetUrls);
+              }
+              
+              // Handle data-srcset
+              if (img.getAttribute('data-srcset')) {
+                const dataSrcsetUrls = img.getAttribute('data-srcset').split(',').map(s => s.trim().split(' ')[0]);
+                urls.push(...dataSrcsetUrls);
+              }
+              
+              // Get location data for this image
+              const locationInfo = detectImageLocation(img);
+              
+              urls.forEach(url => {
+                if (url && url.trim()) {
+                  allImages.push(url.trim());
+                  imageData.push({
+                    url: url.trim(),
+                    locationInfo: locationInfo
+                  });
+                }
+              });
+            } catch (e) {
+              // Skip problematic images
+            }
+          });
+          
+          // Get images from picture elements
+          try {
+            const pictures = document.getElementsByTagName('picture');
+            for (const picture of pictures) {
+              const sources = picture.getElementsByTagName('source');
+              const img = picture.querySelector('img');
+              const locationInfo = img ? detectImageLocation(img) : {
+                coordinates: { x: 0, y: 0, width: 0, height: 0 },
+                sections: ['Unknown'],
+                contextInfo: 'Picture element'
+              };
+              
+              for (const source of sources) {
+                if (source.srcset) {
+                  const srcsetUrls = source.srcset.split(',');
+                  srcsetUrls.forEach(url => {
+                    const cleanUrl = url.trim().split(' ')[0];
+                    if (cleanUrl) {
+                      allImages.push(cleanUrl);
+                      imageData.push({
+                        url: cleanUrl,
+                        locationInfo: locationInfo
+                      });
+                    }
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            // Skip picture elements if there's an error
+          }
+          
+          // Get CSS background images with location detection
+          try {
+            const elements = document.querySelectorAll('*');
+            for (let i = 0; i < Math.min(elements.length, 1000); i++) { // Limit to first 1000 elements for performance
+              const element = elements[i];
+              try {
+                const style = window.getComputedStyle(element);
+                const bgImage = style.backgroundImage;
+                
+                if (bgImage && bgImage !== 'none') {
+                  const matches = bgImage.match(/url\\(["']?(.*?)["']?\\)/g);
+                  if (matches) {
+                    const locationInfo = detectImageLocation(element);
+                    matches.forEach(match => {
+                      const url = match.replace(/url\\(["']?/, '').replace(/["']?\\)/, '');
+                      if (url && url !== 'none') {
+                        allImages.push(url);
+                        imageData.push({
+                          url: url,
+                          locationInfo: locationInfo
+                        });
+                      }
+                    });
+                  }
+                }
+              } catch (e) {
+                // Skip elements that cause errors
+              }
+            }
+          } catch (e) {
+            // Skip CSS background extraction if there's an error
+          }
+          
+          return {
+            imageUrls: allImages,
+            locationData: imageData
+          };
+        } catch (error) {
+          return {
+            imageUrls: [],
+            locationData: [],
+            error: error.message
+          };
+        }
+      }
+      
+      return extractImagesWithLocation();
+    })();
+  `;
+}
+
+// Website image extraction endpoint with enhanced location detection
 app.post("/api/extract-images", async (req, res) => {
   let browser;
   try {
@@ -210,7 +487,9 @@ app.post("/api/extract-images", async (req, res) => {
       });
     }
 
-    console.log(`Starting enhanced image extraction for: ${url}`);
+    console.log(
+      `Starting enhanced image extraction with location detection for: ${url}`
+    );
 
     // Launch Puppeteer with improved compatibility
     browser = await puppeteer.launch({
@@ -256,11 +535,14 @@ app.post("/api/extract-images", async (req, res) => {
     console.log(`Waiting for page to load (${pageLoadWait} seconds)...`);
     await sleep(pageLoadWait * 1000);
 
+    const allImageData = [];
     const allImageUrls = new Set();
 
-    console.log("Performing enhanced image discovery...");
+    console.log(
+      "Performing enhanced image discovery with location detection..."
+    );
 
-    // Method 1: Progressive scrolling with image extraction
+    // Method 1: Progressive scrolling with image extraction and location detection
     for (let i = 0; i < scrollIterations; i++) {
       console.log(`Scroll iteration ${i + 1} of ${scrollIterations}...`);
 
@@ -274,148 +556,76 @@ app.post("/api/extract-images", async (req, res) => {
 
         await sleep(scrollDelay / 5);
 
-        // Extract images at each scroll position
-        const images = await page.evaluate(() => {
-          const imageUrls = [];
+        // Extract images with location data at each scroll position
+        const extractionResult = await page.evaluate(
+          getImageLocationDetectionScript()
+        );
 
-          // Get all img elements
-          const imgElements = document.querySelectorAll("img");
-          imgElements.forEach((img) => {
-            if (img.src) imageUrls.push(img.src);
-            if (img.getAttribute("data-src"))
-              imageUrls.push(img.getAttribute("data-src"));
-            if (img.getAttribute("data-lazy-src"))
-              imageUrls.push(img.getAttribute("data-lazy-src"));
-
-            // Handle srcset
-            if (img.srcset) {
-              const srcsetUrls = img.srcset
-                .split(",")
-                .map((s) => s.trim().split(" ")[0]);
-              imageUrls.push(...srcsetUrls);
-            }
-
-            // Handle data-srcset
-            if (img.getAttribute("data-srcset")) {
-              const dataSrcsetUrls = img
-                .getAttribute("data-srcset")
-                .split(",")
-                .map((s) => s.trim().split(" ")[0]);
-              imageUrls.push(...dataSrcsetUrls);
-            }
-          });
-
-          return imageUrls;
+        // Process the results
+        extractionResult.imageUrls.forEach((imageUrl) => {
+          allImageUrls.add(imageUrl);
         });
 
-        images.forEach((img) => allImageUrls.add(img));
+        // Store location data
+        extractionResult.locationData.forEach((data) => {
+          // Check if we already have this URL in our data
+          const existingIndex = allImageData.findIndex(
+            (item) => item.url === data.url
+          );
+          if (existingIndex === -1) {
+            allImageData.push(data);
+          } else {
+            // Update with more detailed location info if available
+            if (
+              data.locationInfo &&
+              data.locationInfo.sections.length >
+                allImageData[existingIndex].locationInfo.sections.length
+            ) {
+              allImageData[existingIndex] = data;
+            }
+          }
+        });
       }
 
       await sleep(scrollDelay);
     }
 
-    console.log(`Found ${allImageUrls.size} images from img elements`);
+    console.log(
+      `Found ${allImageUrls.size} images with location data from progressive scrolling`
+    );
 
-    // Method 2: Extract CSS background images
-    console.log("Extracting CSS background images...");
-    const backgroundImages = await page.evaluate(() => {
-      const backgroundUrls = [];
-      const elements = document.querySelectorAll("*");
+    // Method 2: Final comprehensive extraction after all scrolling
+    console.log("Performing final comprehensive extraction...");
+    const finalExtractionResult = await page.evaluate(
+      getImageLocationDetectionScript()
+    );
 
-      for (const element of elements) {
-        const style = window.getComputedStyle(element);
-        const bgImage = style.backgroundImage;
-
-        if (bgImage && bgImage !== "none") {
-          const matches = bgImage.match(/url\(["']?(.*?)["']?\)/g);
-          if (matches) {
-            matches.forEach((match) => {
-              const url = match
-                .replace(/url\(["']?/, "")
-                .replace(/["']?\)/, "");
-              if (url && url !== "none") {
-                backgroundUrls.push(url);
-              }
-            });
-          }
-        }
-      }
-
-      return backgroundUrls;
+    // Merge final results
+    finalExtractionResult.imageUrls.forEach((imageUrl) => {
+      allImageUrls.add(imageUrl);
     });
 
-    backgroundImages.forEach((img) => allImageUrls.add(img));
-    console.log(`Found ${backgroundImages.length} CSS background images`);
-
-    // Method 3: JavaScript-based image discovery
-    console.log("Using JavaScript to discover additional images...");
-    const discoveredImages = await page.evaluate(() => {
-      const allImages = [];
-
-      // Get all img elements with various attributes
-      const imgs = document.getElementsByTagName("img");
-      for (const img of imgs) {
-        if (img.src) allImages.push(img.src);
-        if (img.getAttribute("data-src"))
-          allImages.push(img.getAttribute("data-src"));
-        if (img.getAttribute("data-lazy-src"))
-          allImages.push(img.getAttribute("data-lazy-src"));
-        if (img.getAttribute("data-original"))
-          allImages.push(img.getAttribute("data-original"));
+    finalExtractionResult.locationData.forEach((data) => {
+      const existingIndex = allImageData.findIndex(
+        (item) => item.url === data.url
+      );
+      if (existingIndex === -1) {
+        allImageData.push(data);
       }
-
-      // Get images from picture elements
-      const pictures = document.getElementsByTagName("picture");
-      for (const picture of pictures) {
-        const sources = picture.getElementsByTagName("source");
-        for (const source of sources) {
-          if (source.srcset) {
-            const srcsetUrls = source.srcset.split(",");
-            srcsetUrls.forEach((url) => {
-              const cleanUrl = url.trim().split(" ")[0];
-              if (cleanUrl) allImages.push(cleanUrl);
-            });
-          }
-        }
-      }
-
-      // Get images from stylesheets (safe access)
-      try {
-        const stylesheets = document.styleSheets;
-        for (const stylesheet of stylesheets) {
-          try {
-            const rules = stylesheet.cssRules || stylesheet.rules;
-            if (rules) {
-              for (const rule of rules) {
-                if (rule.style && rule.style.backgroundImage) {
-                  const bgImg = rule.style.backgroundImage;
-                  const matches = bgImg.match(/url\("?([^"]*)"?\)/);
-                  if (matches && matches[1]) {
-                    allImages.push(matches[1]);
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            // Cross-origin stylesheets may throw errors
-          }
-        }
-      } catch (e) {
-        // Stylesheet access may fail
-      }
-
-      return [...new Set(allImages)];
     });
-
-    discoveredImages.forEach((img) => allImageUrls.add(img));
-    console.log(`JavaScript discovery found additional images`);
 
     await browser.close();
 
     // Process and filter URLs
-    console.log("Processing and validating image URLs...");
+    console.log("Processing and validating image URLs with location data...");
     const baseUri = new URL(url);
-    const processedUrls = [];
+    const processedResults = [];
+    const locationDataMap = new Map();
+
+    // Create a map of URLs to location data
+    allImageData.forEach((data) => {
+      locationDataMap.set(data.url, data.locationInfo);
+    });
 
     for (const imagePath of allImageUrls) {
       // Skip invalid URLs
@@ -440,22 +650,49 @@ app.post("/api/extract-images", async (req, res) => {
 
       // Validate as image URL
       if (isValidImageUrl(absoluteUrl)) {
-        processedUrls.push(absoluteUrl);
+        processedResults.push({
+          url: absoluteUrl,
+          locationInfo: locationDataMap.get(imagePath) ||
+            locationDataMap.get(absoluteUrl) || {
+              coordinates: { x: 0, y: 0 },
+              sections: ["Unknown"],
+              contextInfo: "Location data not available",
+            },
+        });
       }
     }
 
-    // Remove duplicates
-    const uniqueUrls = [...new Set(processedUrls)];
+    // Remove duplicates based on URL
+    const uniqueResults = [];
+    const seenUrls = new Set();
 
-    console.log(`Found ${uniqueUrls.length} valid image URLs after filtering`);
+    processedResults.forEach((result) => {
+      if (!seenUrls.has(result.url)) {
+        seenUrls.add(result.url);
+        uniqueResults.push(result);
+      }
+    });
+
+    console.log(
+      `Found ${uniqueResults.length} valid image URLs with location data after filtering`
+    );
+
+    // Separate URLs and location data for the response
+    const imageUrls = uniqueResults.map((result) => result.url);
+    const locationData = uniqueResults.reduce((acc, result) => {
+      acc[result.url] = result.locationInfo;
+      return acc;
+    }, {});
 
     res.json({
       success: true,
-      imageUrls: uniqueUrls,
+      imageUrls: imageUrls,
+      locationData: locationData,
       stats: {
         totalFound: allImageUrls.size,
-        validImages: uniqueUrls.length,
+        validImages: uniqueResults.length,
         websiteName: getWebsiteName(url),
+        withLocationData: Object.keys(locationData).length,
       },
     });
   } catch (error) {
@@ -472,10 +709,10 @@ app.post("/api/extract-images", async (req, res) => {
   }
 });
 
-// Image analysis endpoint (enhanced with content type filtering)
+// Enhanced image analysis endpoint with location data support
 app.post("/api/analyze-images", async (req, res) => {
   try {
-    const { urls } = req.body;
+    const { urls, locationData } = req.body;
 
     if (!urls || !Array.isArray(urls)) {
       return res.status(400).json({
@@ -490,7 +727,7 @@ app.post("/api/analyze-images", async (req, res) => {
       });
     }
 
-    console.log(`Analyzing ${urls.length} image URLs...`);
+    console.log(`Analyzing ${urls.length} image URLs with location data...`);
 
     const results = await Promise.all(
       urls.map(async (url, index) => {
@@ -528,6 +765,7 @@ app.post("/api/analyze-images", async (req, res) => {
               success: false,
               error: `Filtered: Non-image content type (${contentType})`,
               contentType,
+              locationInfo: locationData ? locationData[url] : null,
             };
           }
 
@@ -537,6 +775,7 @@ app.post("/api/analyze-images", async (req, res) => {
               sizeBytes: parseInt(contentLength),
               success: true,
               contentType,
+              locationInfo: locationData ? locationData[url] : null,
             };
           }
 
@@ -571,6 +810,7 @@ app.post("/api/analyze-images", async (req, res) => {
               success: false,
               error: `Filtered: Non-image content type (${type})`,
               contentType: type,
+              locationInfo: locationData ? locationData[url] : null,
             };
           }
 
@@ -579,6 +819,7 @@ app.post("/api/analyze-images", async (req, res) => {
             sizeBytes: size,
             success: true,
             contentType: type,
+            locationInfo: locationData ? locationData[url] : null,
           };
         } catch (error) {
           console.error(`Error analyzing ${url}:`, error.message);
@@ -589,6 +830,7 @@ app.post("/api/analyze-images", async (req, res) => {
             success: false,
             error: error.message,
             contentType: "Unknown",
+            locationInfo: locationData ? locationData[url] : null,
           };
         }
       })
@@ -608,6 +850,11 @@ app.post("/api/analyze-images", async (req, res) => {
     );
     console.log(
       `Filtered out ${filteredResults.length} non-image content types`
+    );
+    console.log(
+      `Location data available for ${
+        finalResults.filter((r) => r.locationInfo).length
+      } images`
     );
 
     // Log summary of filtered content types
@@ -633,6 +880,7 @@ app.post("/api/analyze-images", async (req, res) => {
         successful: successfulResults.length,
         filtered: filteredResults.length,
         failed: urls.length - successfulResults.length - filteredResults.length,
+        withLocationData: finalResults.filter((r) => r.locationInfo).length,
         filteredContentTypes: filteredResults.reduce((acc, result) => {
           const contentType = result.contentType || "Unknown";
           acc[contentType] = (acc[contentType] || 0) + 1;
@@ -651,6 +899,11 @@ app.get("/api/health", (req, res) => {
   res.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
+    features: {
+      locationDetection: "enabled",
+      enhancedImageFormats: "enabled",
+      modernFormatsSupported: ["WebP", "AVIF", "HEIC", "JXL", "JPEG 2000"],
+    },
     services: {
       puppeteer: "available",
       axios: "available",
@@ -689,16 +942,31 @@ app.use((error, req, res, next) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Enhanced Image Analyzer Server running on port ${PORT}`);
+  console.log(
+    `Enhanced Image Analyzer Server with Location Detection running on port ${PORT}`
+  );
   console.log(`Available endpoints:`);
-  console.log(`  POST /api/extract-images - Extract images from website URL`);
-  console.log(`  POST /api/analyze-images - Analyze image URLs`);
-  console.log(`  GET  /api/health - Health check`);
+  console.log(
+    `  POST /api/extract-images - Extract images from website URL with location data`
+  );
+  console.log(
+    `  POST /api/analyze-images - Analyze image URLs with location information`
+  );
+  console.log(`  GET  /api/health - Health check with feature information`);
+  console.log(`\nEnhanced features:`);
+  console.log(
+    `  ✓ Location detection (Header, Main, Sidebar, Footer, Navigation)`
+  );
+  console.log(`  ✓ Position coordinates and context information`);
+  console.log(
+    `  ✓ Support for all modern image formats (WebP, AVIF, HEIC, JXL, etc.)`
+  );
+  console.log(`  ✓ Enhanced image type detection and validation`);
 });
 
 // Graceful shutdown
 process.on("SIGINT", () => {
-  console.log("\nShutting down server gracefully...");
+  console.log("\nShutting down enhanced server gracefully...");
   process.exit(0);
 });
 
@@ -710,4 +978,3 @@ process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception:", error);
   process.exit(1);
 });
-// V2.7
